@@ -14,6 +14,15 @@ static bool wifi_connected = false;
 WiFiClient client;
 WiFiManager wm;
 
+const char * get_uid (void)
+{
+  static char uid[21] = {};
+  if (!uid[0])
+    snprintf_P(uid, sizeof(uid), PSTR("RainSensor_%08X"), ESP.getChipId());
+
+  return uid;
+}
+
 void setup() {
   #ifndef DEBUG_PRINT
   pinMode(LEDPIN, OUTPUT);
@@ -50,7 +59,9 @@ void setup() {
     }
   });
   
-  wifi_set_sleep_type(NONE_SLEEP_T);
+  wifi_set_sleep_type(NONE_SLEEP_T); // maybe remove/adjust this later when run on battery
+
+  dprintf("\n\nUID: %s\n\n", get_uid());
   
   // Start WiFiManager (will start config portal if not connected)
   wm.autoConnect(DEVICENAME);
