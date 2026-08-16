@@ -6,22 +6,15 @@
 #include "ota/ota.hpp"
 #include "projutils/projutils.hpp"
 #include "config.hpp"
+#include "AscomAlpaca/AscomAlpacaClass.hpp"
 
 using namespace pliskin;
 
 static bool mDNS_init_ok = false;
 static bool wifi_connected = false;
-WiFiClient client;
+static ascom_alpaca alpaca;
+
 WiFiManager wm;
-
-const char * get_uid (void)
-{
-  static char uid[21] = {};
-  if (!uid[0])
-    snprintf_P(uid, sizeof(uid), PSTR("RainSensor_%08X"), ESP.getChipId());
-
-  return uid;
-}
 
 void setup() {
   #ifndef DEBUG_PRINT
@@ -41,7 +34,9 @@ void setup() {
     if (event == WIFI_EVENT_STAMODE_GOT_IP) {
       wifi_connected = true;
       dprintf("WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
-      
+
+      alpaca.begin(PORT_ALPACA_DISCOVERY, PORT_ALPACA_DEVICE);
+
       // Initialize mDNS only after WiFi is connected
       if (!mDNS_init_ok) {
         mDNS_init_ok = MDNS.begin(DEVICENAME);
@@ -61,7 +56,7 @@ void setup() {
   
   wifi_set_sleep_type(NONE_SLEEP_T); // maybe remove/adjust this later when run on battery
 
-  dprintf("\n\nUID: %s\n\n", get_uid());
+  dprintf("\n\nUID: %s\n\n", alpaca.get_uid());
   
   // Start WiFiManager (will start config portal if not connected)
   wm.autoConnect(DEVICENAME);
@@ -88,16 +83,12 @@ void loop() {
   if (connected)
     ota::handle();
 
-  // program logic
+  alpaca.loop(connected);
+
   if (time >= next)
   {
     next = time + 10000;
-    dprintf("Systime: %lu ms; WLAN: %sconnected (as %s)\n", time, (connected ? "":"dis"), connected ? WiFi.localIP().toString().c_str() : "N/A");
-
-    if (connected)
-    {
-        // TODO
-    }
+    dprintf("\nSystime: %lu ms; WLAN: %sconnected (as %s)", time, (connected ? "":"dis"), connected ? WiFi.localIP().toString().c_str() : "N/A");
   }
 
   yield();
