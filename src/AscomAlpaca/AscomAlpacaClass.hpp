@@ -3,20 +3,17 @@
 
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
-#include <WiFiServer.h>
+#include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
-#include <vector>
 
 class ascom_alpaca
 {
     private:
         WiFiUDP _udp;
-        WiFiServer _listener;
-        std::vector<WiFiClient> _clients;
+        uint16_t _port_discovery;
         uint16_t _port_device;
         bool _was_connected = false;
         void _handle_discovery (void);
-        void _handle_new_clients (void);
 
     public:
         static const char * get_uid (void);
