@@ -1,8 +1,10 @@
 #include "AscomAlpacaClass.hpp"
 #include "../projutils/projutils.hpp"
 
-static JsonDocument _alpaca_doc;
 static ESP8266WebServer _server;
+static float _average_period_hours = 0.0;   // `0.0` must always be accepted (instantaneous value)
+static float _rain_rate = 0.1;
+static bool _is_safe = true;
 
 static uint32_t _get_server_transaction_id (void)
 {
@@ -25,6 +27,41 @@ static uint32_t _get_client_transaction_id (void)
     return client_transaction_id;
 }
 
+static JsonDocument _prepare_json_response (void)
+{
+    JsonDocument doc;
+
+    doc["ClientTransactionID"] = _get_client_transaction_id();
+    doc["ServerTransactionID"] = _get_server_transaction_id();
+    doc["ErrorNumber"] = 0;
+    doc["ErrorMessage"] = "";
+
+    return doc;
+}
+
+static void _set_response_error (JsonDocument& doc, const int error_number, const char * const description = nullptr)
+{
+    doc["ErrorNumber"] = error_number;
+
+    if (error_number)
+    {
+        if (description)
+            doc["ErrorMessage"] = description;
+        else
+            doc["ErrorMessage"] = "UnknownError";
+    }
+    else
+        doc["ErrorMessage"] = "";
+}
+
+static void _send_json_response (JsonDocument& doc)
+{
+    _server.sendHeader("Content-Type", "application/json");
+    String serialized;
+    serializeJson(doc, serialized);
+    _server.send(200, "application/json", serialized);
+}
+
 void ascom_alpaca::_handle_discovery(void)
 {
     int packetSize = _udp.parsePacket();
@@ -45,11 +82,11 @@ void ascom_alpaca::_handle_discovery(void)
             dprintf("\nDiscovery request received from %s:%u", ip.toString().c_str(), port);
 
             // respond
-            _alpaca_doc.clear();
-            _alpaca_doc["AlpacaPort"] = _port_device;
+            JsonDocument doc;
+            doc["AlpacaPort"] = _port_device;
 
             _udp.beginPacket(ip, port);
-            serializeJson(_alpaca_doc, _udp);
+            serializeJson(doc, _udp);
             auto success = _udp.endPacket(); // BUG this doesn't seem to send anything despite returning success
             if (!success)
             {
@@ -76,77 +113,72 @@ const char *ascom_alpaca::get_uid(void)
 
 static void send_api_versions()
 {
-    _alpaca_doc.clear();
+    JsonDocument doc;
 
-    auto versions = _alpaca_doc["Value"].to<JsonArray>();
+    auto versions = doc["Value"].to<JsonArray>();
     versions.add(1);
 
-    _alpaca_doc["ClientTransactionID"] = _get_client_transaction_id();
-    _alpaca_doc["ServerTransactionID"] = _get_server_transaction_id();
+    doc["ClientTransactionID"] = _get_client_transaction_id();
+    doc["ServerTransactionID"] = _get_server_transaction_id();
 
-    _server.sendHeader("Content-Type", "application/json");
-    String serialized;
-    serializeJson(_alpaca_doc, serialized);
-    _server.send(200, "application/json", serialized);
+    _send_json_response(doc);
 }
 
 static void send_api_description()
 {
-    _alpaca_doc.clear();
+    JsonDocument doc;
 
-    auto value = _alpaca_doc["Value"].to<JsonObject>();
+    auto value = doc["Value"].to<JsonObject>();
     value["ServerName"] = ascom_alpaca::get_uid();
     value["Manufacturer"] = "Pliskin707";
     value["ManufacturerVersion"] = "1.0.0.0";
     value["Location"] = "nearby ;)";
 
-    _alpaca_doc["ClientTransactionID"] = _get_client_transaction_id();
-    _alpaca_doc["ServerTransactionID"] = _get_server_transaction_id();
+    doc["ClientTransactionID"] = _get_client_transaction_id();
+    doc["ServerTransactionID"] = _get_server_transaction_id();
 
-    _server.sendHeader("Content-Type", "application/json");
-    String serialized;
-    serializeJson(_alpaca_doc, serialized);
-    _server.send(200, "application/json", serialized);
+    _send_json_response(doc);
 }
 
 static void send_configured_devices()
 {
-    _alpaca_doc.clear();
+    JsonDocument doc;
 
-    auto value = _alpaca_doc["Value"].to<JsonArray>();
+    auto value = doc["Value"].to<JsonArray>();
+
+    // Observing Conditions
     auto item = value.add<JsonObject>();
     item["DeviceName"] = "RainSensor";
     item["DeviceType"] = "ObservingConditions";
     item["DeviceNumber"] = 0;
     auto unique_id = String(ascom_alpaca::get_uid());
-    unique_id += "_0";
+    unique_id += "_Conditions";
     item["UniqueID"] = unique_id;
 
-    _alpaca_doc["ClientTransactionID"] = _get_client_transaction_id();
-    _alpaca_doc["ServerTransactionID"] = _get_server_transaction_id();
+    // Safety Monitor
+    item = value.add<JsonObject>();
+    item["DeviceName"] = "RainMonitor";
+    item["DeviceType"] = "SafetyMonitor";
+    item["DeviceNumber"] = 0;
+    unique_id = String(ascom_alpaca::get_uid());
+    unique_id += "_Monitor";
+    item["UniqueID"] = unique_id;
 
-    _server.sendHeader("Content-Type", "application/json");
-    String serialized;
-    serializeJson(_alpaca_doc, serialized);
-    _server.send(200, "application/json", serialized);
+    doc["ClientTransactionID"] = _get_client_transaction_id();
+    doc["ServerTransactionID"] = _get_server_transaction_id();
+
+    _send_json_response(doc);
 }
 
 static void send_connected_state()
 {
-    _alpaca_doc.clear();
+    auto doc = _prepare_json_response();
 
     // TODO this has parameters; parse and use them!
     // TODO this can be PUT or GET; handle them
-    _alpaca_doc["ClientTransactionID"] = _get_client_transaction_id();
-    _alpaca_doc["ServerTransactionID"] = _get_server_transaction_id();
-    _alpaca_doc["ErrorNumber"] = 0;
-    _alpaca_doc["ErrorMessage"] = "";
-    _alpaca_doc["Value"] = true;
+    doc["Value"] = true;
 
-    _server.sendHeader("Content-Type", "application/json");
-    String serialized;
-    serializeJson(_alpaca_doc, serialized);
-    _server.send(200, "application/json", serialized);
+    _send_json_response(doc);
 }
 
 static void send_rain_rate()
@@ -154,18 +186,119 @@ static void send_rain_rate()
     dprintf("\n rain rate called");
 
     // TODO this has parameters; parse and use them!
-    _alpaca_doc.clear();
+    auto doc = _prepare_json_response();
+    doc["Value"] = _rain_rate;
 
-    _alpaca_doc["ClientTransactionID"] = _get_client_transaction_id();
-    _alpaca_doc["ServerTransactionID"] = _get_server_transaction_id();
-    _alpaca_doc["ErrorNumber"] = 0;
-    _alpaca_doc["ErrorMessage"] = "";
-    _alpaca_doc["Value"] = 0.1;
+    _send_json_response(doc);
+}
 
-    _server.sendHeader("Content-Type", "application/json");
-    String serialized;
-    serializeJson(_alpaca_doc, serialized);
-    _server.send(200, "application/json", serialized);
+static void send_device_description()
+{
+    auto doc = _prepare_json_response();
+    doc["Value"] = "ESP8266 based device using a simple digital rain sensor";
+
+    _send_json_response(doc);
+}
+
+static void send_driver_info()
+{
+    auto doc = _prepare_json_response();
+    doc["Value"] = "https://github.com/Pliskin707/ESP8266_RainSensor";
+
+    _send_json_response(doc);
+}
+
+static void send_driver_version()
+{
+    auto doc = _prepare_json_response();
+    doc["Value"] = "1.0"; // see https://ascom-standards.org/newdocs/camera.html#Camera.DriverVersion
+
+    _send_json_response(doc);
+}
+
+static void send_interface_version()
+{
+    auto doc = _prepare_json_response();
+    doc["Value"] = 4; // see https://ascom-standards.org/newdocs/camera.html#Camera.InterfaceVersion
+
+    _send_json_response(doc);
+}
+
+static void send_supported_actions()
+{
+    auto doc = _prepare_json_response();
+    auto value = doc["Value"].to<JsonArray>(); // a list of all non-standard actions the device can perform
+    value.add("GetBatteryLevel"); // TODO implement (see https://ascom-standards.org/newdocs/camera.html#Camera.Action )
+
+    _send_json_response(doc);
+}
+
+static void send_average_period()
+{
+    auto doc = _prepare_json_response();
+    doc["Value"] = _average_period_hours;
+
+    _send_json_response(doc);
+}
+
+static void change_average_period()
+{
+    if (!_server.hasArg("AveragePeriod"))
+    {
+        _server.send(400, "Missing parameter \"AveragePeriod\"");
+        return;
+    }
+
+    auto doc = _prepare_json_response();
+
+    int average_period = _server.arg("AveragePeriod").toFloat();
+    if ((average_period < 0.0) || (average_period > 24.0))
+    {
+        _set_response_error(doc, 0x401, "Only values between 0..24 are allowed");
+    }
+    else
+    {
+        dprintf("Average period change to %.3f hours", average_period);
+        _average_period_hours = average_period;
+    }
+
+    _send_json_response(doc);
+}
+
+static void send_device_state_conditions()
+{
+    auto doc = _prepare_json_response();
+    auto value = doc["Value"].to<JsonArray>();
+    auto item = value.add<JsonObject>();
+    item["Name"] = "RainRate";
+    item["Value"] = _rain_rate;
+
+    _send_json_response(doc);
+}
+
+static void send_device_state_monitor()
+{
+    auto doc = _prepare_json_response();
+    auto value = doc["Value"].to<JsonArray>();
+    auto item = value.add<JsonObject>();
+    item["Name"] = "IsSafe";
+    item["Value"] = _is_safe;
+
+    _send_json_response(doc);
+}
+
+static void send_not_implemented()
+{
+    auto doc = _prepare_json_response();
+
+    char description[200];
+    const auto& uri = _server.uri();
+    const auto& property_name = uri.substring(uri.lastIndexOf('/') + 1);
+    snprintf_P(description, sizeof(description), PSTR("%s is not implemented"), property_name.c_str());
+    description[sizeof(description) - 1] = 0;
+    _set_response_error(doc, 0x400, description);
+
+    _send_json_response(doc);
 }
 
 void ascom_alpaca::begin(const uint16_t port_discovery, const uint16_t port_device)
@@ -176,9 +309,40 @@ void ascom_alpaca::begin(const uint16_t port_discovery, const uint16_t port_devi
     _server.on("/management/apiversions", send_api_versions);
     _server.on("/management/v1/description", send_api_description);
     _server.on("/management/v1/configureddevices", send_configured_devices);
-    // _server.on("/setup/v1/observingconditions/0/setup", nullptr);    // <- this is called if you press the gears symbol in N.I.N.A.
+
+    _server.on("/setup/v1/observingconditions/0/setup", send_not_implemented);    // <- this is called if you press the gears symbol in N.I.N.A.
     _server.on("/api/v1/observingconditions/0/connected", send_connected_state);
+    _server.on("/api/v1/observingconditions/0/interfaceversion", send_interface_version);
+    _server.on("/api/v1/observingconditions/0/description", send_device_description);
+    _server.on("/api/v1/observingconditions/0/driverinfo", send_driver_info);
+    _server.on("/api/v1/observingconditions/0/driverversion", send_driver_version);
+    _server.on("/api/v1/observingconditions/0/supportedactions", send_supported_actions);
+    _server.on("/api/v1/observingconditions/0/devicestate", send_device_state_conditions);
+
     _server.on("/api/v1/observingconditions/0/rainrate", send_rain_rate);
+    _server.on("/api/v1/observingconditions/0/averageperiod", HTTP_GET, send_average_period);
+    _server.on("/api/v1/observingconditions/0/averageperiod", HTTP_PUT, change_average_period);
+    _server.on("/api/v1/observingconditions/0/cloudcover", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/dewpoint", send_not_implemented); // maybe later with a DHT11 or DHT22 (also requires `send_device_state_conditions()` to be updated)
+    _server.on("/api/v1/observingconditions/0/humidity", send_not_implemented); // maybe later with a DHT11 or DHT22 (also requires `send_device_state_conditions()` to be updated)
+    _server.on("/api/v1/observingconditions/0/pressure", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/skybrightness", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/skyquality", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/skytemperature", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/starfwhm", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/temperature", send_not_implemented); // maybe later with a DHT11 or DHT22 (also requires `send_device_state_conditions()` to be updated)
+    _server.on("/api/v1/observingconditions/0/winddirection", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/windgust", send_not_implemented);
+    _server.on("/api/v1/observingconditions/0/windspeed", send_not_implemented);
+
+    _server.on("/setup/v1/safetymonitor/0/setup", send_not_implemented);    // <- this is called if you press the gears symbol in N.I.N.A.
+    _server.on("/api/v1/safetymonitor/0/connected", send_connected_state);
+    _server.on("/api/v1/safetymonitor/0/interfaceversion", send_interface_version);
+    _server.on("/api/v1/safetymonitor/0/description", send_device_description);
+    _server.on("/api/v1/safetymonitor/0/driverinfo", send_driver_info);
+    _server.on("/api/v1/safetymonitor/0/driverversion", send_driver_version);
+    _server.on("/api/v1/safetymonitor/0/supportedactions", send_supported_actions);
+    _server.on("/api/v1/safetymonitor/0/devicestate", send_device_state_monitor);
 }
 
 void ascom_alpaca::loop(const bool connected)
