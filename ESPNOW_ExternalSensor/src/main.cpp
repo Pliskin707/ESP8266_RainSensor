@@ -1,102 +1,66 @@
 #include <Arduino.h>
 
 #include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
-#include <WiFiManager.h>
 #include "ota/ota.hpp"
 #include "projutils/projutils.hpp"
 #include "config.hpp"
-#include "AscomAlpaca/AscomAlpacaClass.hpp"
+#include "espnow/EspNowComm.hpp"
+#include "sensors/RainSensorClass/RainSensorClass.hpp"
 
-using namespace pliskin;
+/*
+ there are two modes for this controller:
 
-static bool mDNS_init_ok = false;
-static bool wifi_connected = false;
+ 1. Sensor Mode:
+    Device wakes, reads the sensor(s), transmits the data via ESP-NOW and goes to deep-sleep to conserve battery
 
-WiFiManager wm;
-
+ 2. Update Mode:
+    Device wakes, connects to a WiFi and cyclically handles OTA until either finished or nothing happened for 5 minutes, then reboots
+*/
 void setup() {
+  // TODO remove after wiring to RST pin is done (this simulates the "deep-sleep")
+  delay(2000uL);
+
+  rain_sensor.begin();
+
   #ifndef DEBUG_PRINT
   pinMode(LEDPIN, OUTPUT);
   #else
   Serial.begin(115200);
   #endif
 
-  rain_sensor.begin();
+  dprintf("\nHello world");
 
-  // WiFi Manager - Async mode
-  WiFi.hostname(DEVICENAME);
-  wm.setConfigPortalBlocking(false);  // Non-blocking mode
-  wm.setConnectTimeout(20);           // Connection timeout in seconds
-  wm.setConnectRetries(3);            // Number of retries
+  // WiFi must be turned on to use ESP NOW, but a connection is not required
+  WiFi.mode(WIFI_STA);
   
-  // Setup WiFi event callbacks
-  WiFi.onEvent([](WiFiEvent_t event) {
-    if (event == WIFI_EVENT_STAMODE_GOT_IP) {
-      wifi_connected = true;
-      dprintf("WiFi connected! IP: %s\n", WiFi.localIP().toString().c_str());
+  esp_now_comm.begin();
 
-      alpaca.begin(PORT_ALPACA_DISCOVERY, PORT_ALPACA_DEVICE);
-
-      // Initialize mDNS only after WiFi is connected
-      if (!mDNS_init_ok) {
-        mDNS_init_ok = MDNS.begin(DEVICENAME);
-        if (mDNS_init_ok) {
-          dprintf("mDNS initialized\n");
-        }
-      }
-      
-      // Initialize OTA only after WiFi is connected
-      ota::begin(DEVICENAME);
-    } 
-    else if (event == WIFI_EVENT_STAMODE_DISCONNECTED) {
-      wifi_connected = false;
-      dprintf("WiFi disconnected\n");
-    }
-  });
+  static espnow_rainsensor_package_t package; // static so the memory stays valid (for re-transmission; esp_now_comm only stores the address)
+  memset(&package, 0xFF, sizeof(package));
   
-  wifi_set_sleep_type(LIGHT_SLEEP_T);
+  // from DHT11/DHT22 sensor
+  // TODO fill with real values
+  package.temperature    = to_analog_signal(1.23f);
+  package.humidity       = to_analog_signal(1.23f);
+  package.sensor_temp_ok = package.sensor_humid_ok = boolean_signal_t::off_or_false;
 
-  dprintf("\n\nUID: %s\n\n", alpaca.get_uid());
+  // from rain sensor
+  package.is_raining     = static_cast<boolean_signal_t>(rain_sensor.is_raining());
+  package.sensor_rain_ok = boolean_signal_t::on_or_true;
+
+  // from the one and only ADC input (do not use the `ESP.getVcc()` function since this device may be powered by the solar panel if the battery is full or disconnected)
+  package.battery_millivolt = static_cast<uint16_t>((analogRead(A0) * 4500) / 1024);
+
+  // broadcast
+  mac destination = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  esp_now_comm.send(destination, &package, sizeof(package));
+
+  dprintf("\t\tData send after %lu us", micros());
   
-  // Start WiFiManager (will start config portal if not connected)
-  wm.autoConnect(DEVICENAME);
+  // TODO replace with deep-sleep after wiring to RST pin is done
+  delay(500uL);
+  ESP.reset();
 }
 
 void loop() {
-  const uint32_t time = millis();
-  static uint32_t next = 0;
-
-  // WiFiManager async processing
-  wm.process();
-
-  // Wifi status
-  const bool connected = WiFi.isConnected();
-  #ifndef DEBUG_PRINT
-  digitalWrite(LEDPIN, !connected);
-  #endif
-
-  // mDNS
-  if (mDNS_init_ok)
-    MDNS.update();
-
-  // OTA
-  if (connected)
-    ota::handle();
-
-  alpaca.loop(connected);
-
-  if (time >= next)
-  {
-    next = time + 10000;
-    dprintf("\nSystime: %lu ms; WLAN: %sconnected (as %s)", time, (connected ? "":"dis"), connected ? WiFi.localIP().toString().c_str() : "N/A");
-  }
-
-  if ((millis() - alpaca.get_last_api_call_time()) > 1000uL)
-  {
-    dprintf("\nSleep");
-    delay(500); // sleep some time to conserver battery
-  }
-  else
-    yield(); // more commands may follow in quick succession
 }

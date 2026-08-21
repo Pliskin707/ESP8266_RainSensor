@@ -5,7 +5,6 @@
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
-#include "sensors/RainSensorClass/RainSensorClass.hpp"
 
 class ascom_alpaca
 {

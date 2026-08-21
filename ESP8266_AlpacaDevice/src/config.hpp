@@ -2,7 +2,7 @@
 #define __CONFIG_HPP__
 
 #define LEDPIN                  LED_BUILTIN
-#define DEVICENAME              "RainSensor"
+#define DEVICENAME              "EspAlpaca"
 #define PORT_ALPACA_DISCOVERY   (32227)
 #define PORT_ALPACA_DEVICE      (5017)
 
@@ -11,7 +11,5 @@
 #define PIN_SDA                 (D2)    // aka. GPIO4
 #define PIN_FLASH               (D3)    // aka. GPIO0   // *must* be high at boot -> do not use
 #define PIN_RESERVED            (D4)    // aka. GPIO2   // *must* be high at boot -> do not use
-#define PIN_RAIN_SENSOR         (D5)    // aka. GPIO14  // YL-38 with a comparator // ! these come in different footprints
-#define PIN_HUMID_TEMP_SENSOR   (D6)    // aka. GPIO12  // DHT11 or DHT22
 
 #endif

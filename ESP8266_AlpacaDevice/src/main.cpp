@@ -7,6 +7,8 @@
 #include "projutils/projutils.hpp"
 #include "config.hpp"
 #include "AscomAlpaca/AscomAlpacaClass.hpp"
+#include "EspNowComm/EspNowComm.hpp"
+#include "EspnowConnectionManager.h"
 
 using namespace pliskin;
 
@@ -22,13 +24,12 @@ void setup() {
   Serial.begin(115200);
   #endif
 
-  rain_sensor.begin();
-
   // WiFi Manager - Async mode
   WiFi.hostname(DEVICENAME);
   wm.setConfigPortalBlocking(false);  // Non-blocking mode
   wm.setConnectTimeout(20);           // Connection timeout in seconds
   wm.setConnectRetries(3);            // Number of retries
+  wm.setDarkMode(true);
   
   // Setup WiFi event callbacks
   WiFi.onEvent([](WiFiEvent_t event) {
@@ -55,19 +56,22 @@ void setup() {
     }
   });
   
-  wifi_set_sleep_type(LIGHT_SLEEP_T);
+  wifi_set_sleep_type(NONE_SLEEP_T);
 
   dprintf("\n\nUID: %s\n\n", alpaca.get_uid());
   
   // Start WiFiManager (will start config portal if not connected)
   wm.autoConnect(DEVICENAME);
+
+  // since the WiFiManager already enabled STA mode, ESP-NOW can be initialized now
+  esp_now_comm.begin();
 }
 
 void loop() {
   const uint32_t time = millis();
   static uint32_t next = 0;
 
-  // WiFiManager async processing
+  // WiFiManager async processing (also processes MDNS)
   wm.process();
 
   // Wifi status
@@ -76,14 +80,11 @@ void loop() {
   digitalWrite(LEDPIN, !connected);
   #endif
 
-  // mDNS
-  if (mDNS_init_ok)
-    MDNS.update();
-
   // OTA
   if (connected)
     ota::handle();
 
+  esp_now_comm.loop();
   alpaca.loop(connected);
 
   if (time >= next)
@@ -92,11 +93,5 @@ void loop() {
     dprintf("\nSystime: %lu ms; WLAN: %sconnected (as %s)", time, (connected ? "":"dis"), connected ? WiFi.localIP().toString().c_str() : "N/A");
   }
 
-  if ((millis() - alpaca.get_last_api_call_time()) > 1000uL)
-  {
-    dprintf("\nSleep");
-    delay(500); // sleep some time to conserver battery
-  }
-  else
-    yield(); // more commands may follow in quick succession
+  yield(); // more commands may follow in quick succession
 }

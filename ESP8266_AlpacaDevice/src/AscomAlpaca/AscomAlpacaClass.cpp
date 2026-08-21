@@ -1,5 +1,6 @@
 #include "AscomAlpacaClass.hpp"
 #include "../projutils/projutils.hpp"
+#include "EspNowComm/EspNowComm.hpp" // TODO use the values from here instead of the static variables below
 
 // #define DEBUG_CALL_CYCLE
 #ifndef DEBUG_CALL_CYCLE
@@ -402,7 +403,7 @@ void ascom_alpaca::begin(const uint16_t port_discovery, const uint16_t port_devi
 
 void ascom_alpaca::loop(const bool connected)
 {
-    _is_safe = !rain_sensor.is_raining();
+    // _is_safe = !rain_sensor.is_raining();
     _rain_rate = (_is_safe ? 0.0f : 1.0f);
 
     if (connected)
