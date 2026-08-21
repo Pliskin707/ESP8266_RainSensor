@@ -1,8 +1,19 @@
 #include "AscomAlpacaClass.hpp"
 #include "../projutils/projutils.hpp"
 
+// #define DEBUG_CALL_CYCLE
+#ifndef DEBUG_CALL_CYCLE
+#define DEBUG_CALL_CYCLE \
+static uint32_t last_call = 0;\
+const uint32_t sys_time = millis(), ms_since_last_call = sys_time - (last_call ?: sys_time);\
+last_call = sys_time;\
+dprintf("\n %s state called after %lu ms", __func__, ms_since_last_call);
+#endif
+
+ascom_alpaca alpaca;
 static ESP8266WebServer _server;
-static float _average_period_hours = 0.0;   // `0.0` must always be accepted (instantaneous value)
+static volatile uint32_t _last_http_api_call = 0uL;
+static float _average_period_hours = 0.25;   // `0.0` must always be accepted (instantaneous value)
 static float _rain_rate = 0.1;
 static bool _is_safe = true;
 
@@ -76,27 +87,24 @@ void ascom_alpaca::_handle_discovery(void)
             String payload = String(packetBuffer);
             if(payload.equalsIgnoreCase(F("alpacadiscovery1")))
             {
-            const auto ip = _udp.remoteIP();
-            const auto port = _udp.remotePort();
+                const auto ip = _udp.remoteIP();
+                const auto port = _udp.remotePort();
+                _last_http_api_call = millis();
 
-            dprintf("\nDiscovery request received from %s:%u", ip.toString().c_str(), port);
+                dprintf("\nDiscovery request received from %s:%u", ip.toString().c_str(), port);
 
-            // respond
-            JsonDocument doc;
-            doc["AlpacaPort"] = _port_device;
+                // respond
+                JsonDocument doc;
+                doc["AlpacaPort"] = _port_device;
 
-            _udp.beginPacket(ip, port);
-            serializeJson(doc, _udp);
-            auto success = _udp.endPacket(); // BUG this doesn't seem to send anything despite returning success
-            if (!success)
-            {
-                dprintf("\nSend failed with %d", _udp.getWriteError());
-                _udp.clearWriteError();
-            }
-            else
-            {
-                dprintf("\nSend success");
-            }
+                _udp.beginPacket(ip, port);
+                serializeJson(doc, _udp);
+                auto success = _udp.endPacket(); // BUG this doesn't seem to send anything despite returning success
+                if (!success)
+                {
+                    dprintf("\nSend failed with %d", _udp.getWriteError());
+                    _udp.clearWriteError();
+                }
             }
         }
     }
@@ -111,8 +119,16 @@ const char *ascom_alpaca::get_uid(void)
   return uid;
 }
 
+uint32_t ascom_alpaca::get_last_api_call_time(void)
+{
+    return _last_http_api_call;
+}
+
 static void send_api_versions()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     JsonDocument doc;
 
     auto versions = doc["Value"].to<JsonArray>();
@@ -126,6 +142,9 @@ static void send_api_versions()
 
 static void send_api_description()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     JsonDocument doc;
 
     auto value = doc["Value"].to<JsonObject>();
@@ -142,6 +161,9 @@ static void send_api_description()
 
 static void send_configured_devices()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     JsonDocument doc;
 
     auto value = doc["Value"].to<JsonArray>();
@@ -172,6 +194,9 @@ static void send_configured_devices()
 
 static void send_connected_state()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE // gets called every 2000 ms by N.I.N.A.
+
     auto doc = _prepare_json_response();
 
     // TODO this has parameters; parse and use them!
@@ -183,7 +208,8 @@ static void send_connected_state()
 
 static void send_rain_rate()
 {
-    dprintf("\n rain rate called");
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
 
     // TODO this has parameters; parse and use them!
     auto doc = _prepare_json_response();
@@ -194,6 +220,9 @@ static void send_rain_rate()
 
 static void send_device_description()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     auto doc = _prepare_json_response();
     doc["Value"] = "ESP8266 based device using a simple digital rain sensor";
 
@@ -202,6 +231,9 @@ static void send_device_description()
 
 static void send_driver_info()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     auto doc = _prepare_json_response();
     doc["Value"] = "https://github.com/Pliskin707/ESP8266_RainSensor";
 
@@ -210,6 +242,9 @@ static void send_driver_info()
 
 static void send_driver_version()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     auto doc = _prepare_json_response();
     doc["Value"] = "1.0"; // see https://ascom-standards.org/newdocs/camera.html#Camera.DriverVersion
 
@@ -218,6 +253,9 @@ static void send_driver_version()
 
 static void send_interface_version()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     auto doc = _prepare_json_response();
     doc["Value"] = 4; // see https://ascom-standards.org/newdocs/camera.html#Camera.InterfaceVersion
 
@@ -226,6 +264,9 @@ static void send_interface_version()
 
 static void send_supported_actions()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     auto doc = _prepare_json_response();
     auto value = doc["Value"].to<JsonArray>(); // a list of all non-standard actions the device can perform
     value.add("GetBatteryLevel"); // TODO implement (see https://ascom-standards.org/newdocs/camera.html#Camera.Action )
@@ -235,6 +276,9 @@ static void send_supported_actions()
 
 static void send_average_period()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE // gets called every 2000 ms by N.I.N.A.
+
     auto doc = _prepare_json_response();
     doc["Value"] = _average_period_hours;
 
@@ -243,6 +287,9 @@ static void send_average_period()
 
 static void change_average_period()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE
+
     if (!_server.hasArg("AveragePeriod"))
     {
         _server.send(400, "Missing parameter \"AveragePeriod\"");
@@ -267,17 +314,24 @@ static void change_average_period()
 
 static void send_device_state_conditions()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE // gets called every 2000 ms by N.I.N.A.
+
     auto doc = _prepare_json_response();
     auto value = doc["Value"].to<JsonArray>();
     auto item = value.add<JsonObject>();
     item["Name"] = "RainRate";
-    item["Value"] = _rain_rate;
+    // item["Value"] = _rain_rate;
+    item["Value"] = static_cast<float>(millis()) / 1000.0f; // TODO remove after debug
 
     _send_json_response(doc);
 }
 
 static void send_device_state_monitor()
 {
+    _last_http_api_call = millis();
+    DEBUG_CALL_CYCLE  // gets called every 2000 ms by N.I.N.A.
+
     auto doc = _prepare_json_response();
     auto value = doc["Value"].to<JsonArray>();
     auto item = value.add<JsonObject>();
@@ -289,6 +343,7 @@ static void send_device_state_monitor()
 
 static void send_not_implemented()
 {
+    _last_http_api_call = millis();
     auto doc = _prepare_json_response();
 
     char description[200];
@@ -347,6 +402,9 @@ void ascom_alpaca::begin(const uint16_t port_discovery, const uint16_t port_devi
 
 void ascom_alpaca::loop(const bool connected)
 {
+    _is_safe = !rain_sensor.is_raining();
+    _rain_rate = (_is_safe ? 0.0f : 1.0f);
+
     if (connected)
     {
         if (!_was_connected)

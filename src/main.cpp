@@ -12,7 +12,6 @@ using namespace pliskin;
 
 static bool mDNS_init_ok = false;
 static bool wifi_connected = false;
-static ascom_alpaca alpaca;
 
 WiFiManager wm;
 
@@ -22,6 +21,8 @@ void setup() {
   #else
   Serial.begin(115200);
   #endif
+
+  rain_sensor.begin();
 
   // WiFi Manager - Async mode
   WiFi.hostname(DEVICENAME);
@@ -54,7 +55,7 @@ void setup() {
     }
   });
   
-  wifi_set_sleep_type(NONE_SLEEP_T); // maybe remove/adjust this later when run on battery
+  wifi_set_sleep_type(LIGHT_SLEEP_T);
 
   dprintf("\n\nUID: %s\n\n", alpaca.get_uid());
   
@@ -91,5 +92,11 @@ void loop() {
     dprintf("\nSystime: %lu ms; WLAN: %sconnected (as %s)", time, (connected ? "":"dis"), connected ? WiFi.localIP().toString().c_str() : "N/A");
   }
 
-  yield();
+  if ((millis() - alpaca.get_last_api_call_time()) > 1000uL)
+  {
+    dprintf("\nSleep");
+    delay(500); // sleep some time to conserver battery
+  }
+  else
+    yield(); // more commands may follow in quick succession
 }

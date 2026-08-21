@@ -5,6 +5,7 @@
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
+#include "sensors/RainSensorClass/RainSensorClass.hpp"
 
 class ascom_alpaca
 {
@@ -17,8 +18,11 @@ class ascom_alpaca
 
     public:
         static const char * get_uid (void);
+        static uint32_t get_last_api_call_time (void);
         void begin (const uint16_t port_discovery, const uint16_t port_device);
         void loop (const bool connected);
 };
+
+extern ascom_alpaca alpaca;
 
 #endif
