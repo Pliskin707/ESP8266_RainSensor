@@ -1,7 +1,7 @@
 #include "./EspNowComm.hpp"
 #include "projutils/projutils.hpp"
 
-#define TIMEOUT_CONNECTED   (5000uL)
+#define TIMEOUT_CONNECTED   (70000uL) // normal update is every 30 seconds, allow one missing package
 
 esp_now_comm_class esp_now_comm;
 
@@ -79,39 +79,61 @@ static void rxCallback (uint8_t * mac, uint8_t * data, uint8_t len)
     const uint32_t sys_time = millis();
     dprintf("\nReceived ESP-NOW from %02X:%02X:%02X:%02X:%02X:%02X with length %u", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], len);
 
-    if (len == sizeof(espnow_rainsensor_package_t))
+    if (len < sizeof(uint32_t)) // magic pattern
+        return;
+
+    uint32_t magic_pattern;
+    memcpy(&magic_pattern, data, sizeof(magic_pattern));    // use memcpy since the content may not be aligned 
+    switch (magic_pattern)
     {
-        auto package = reinterpret_cast<const espnow_rainsensor_package_t * const>(data);
-        _last_rx_device_rain_sensor = sys_time;
-        if (package->battery_millivolt != 0xFFFF)
+        case MAGIC_PATTERN_RAINSENSOR_PACKAGE:
         {
-            _device_rain_battery = calc_SoC(static_cast<float>(package->battery_millivolt) / 1000.0f);
-            dprintf("\nBattery Voltage: %u mV -> %u %%", package->battery_millivolt, static_cast<uint8_t>(_device_rain_battery));
-        }
+            if ((len - sizeof(magic_pattern)) == sizeof(espnow_rainsensor_package_t))
+            {
+                auto package = reinterpret_cast<const espnow_rainsensor_package_t * const>(data + sizeof(magic_pattern));
+                _last_rx_device_rain_sensor = sys_time;
+                if (package->battery_millivolt != 0xFFFF)
+                {
+                    _device_rain_battery = calc_SoC(static_cast<float>(package->battery_millivolt) / 1000.0f);
+                    dprintf("\nBattery Voltage: %u mV -> %u %%", package->battery_millivolt, static_cast<uint8_t>(_device_rain_battery));
+                }
 
-        if (package->sensor_rain_ok >= boolean_signal_t::error)
-            _last_rx_valid_rain_state = 0uL;
-        else if (package->sensor_rain_ok == boolean_signal_t::on_or_true)
-        {
-            _last_rx_valid_rain_state = sys_time;
-            _is_raining = (package->is_raining == boolean_signal_t::on_or_true);
-        }
+                if (package->sensor_rain_ok >= boolean_signal_t::error)
+                    _last_rx_valid_rain_state = 0uL;
+                else if (package->sensor_rain_ok == boolean_signal_t::on_or_true)
+                {
+                    _last_rx_valid_rain_state = sys_time;
+                    _is_raining = (package->is_raining == boolean_signal_t::on_or_true);
+                }
 
-        if (package->sensor_temp_ok >= boolean_signal_t::error)
-            _last_rx_valid_temperature = 0uL;
-        else if (package->sensor_temp_ok == boolean_signal_t::on_or_true)
-        {
-            _last_rx_valid_temperature = sys_time;
-            _temperature = to_float(package->temperature);
-        }
+                if (package->sensor_temp_ok >= boolean_signal_t::error)
+                    _last_rx_valid_temperature = 0uL;
+                else if (package->sensor_temp_ok == boolean_signal_t::on_or_true)
+                {
+                    _last_rx_valid_temperature = sys_time;
+                    _temperature = to_float(package->temperature);
+                }
 
-        if (package->sensor_humid_ok >= boolean_signal_t::error)
-            _last_rx_valid_humidity = 0uL;
-        else if (package->sensor_humid_ok == boolean_signal_t::on_or_true)
-        {
-            _last_rx_valid_humidity = sys_time;
-            _temperature = to_float(package->humidity);
+                if (package->sensor_humid_ok >= boolean_signal_t::error)
+                    _last_rx_valid_humidity = 0uL;
+                else if (package->sensor_humid_ok == boolean_signal_t::on_or_true)
+                {
+                    _last_rx_valid_humidity = sys_time;
+                    _humidity = to_float(package->humidity);
+                }
+            }
+            else
+            {
+                dprintf("\nSize mismatch for rain sensor package: expected %lu received %lu bytes", sizeof(espnow_rainsensor_package_t), (len - sizeof(magic_pattern)))
+            }
         }
+        break;
+
+        default:
+        {
+            dprintf("\nUnknown magic pattern: %08X", magic_pattern);
+        }
+        break;
     }
 }
 

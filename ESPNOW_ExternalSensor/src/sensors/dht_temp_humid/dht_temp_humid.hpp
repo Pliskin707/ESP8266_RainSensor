@@ -1,10 +1,5 @@
-#include <Adafruit_Sensor.h>
 #include <DHT.h>
-#include <DHT_U.h>
-
-#define DHTPIN 0     // Digital pin connected to the DHT sensor (this is GPIO0)
-// Feather HUZZAH ESP8266 note: use pins 3, 4, 5, 12, 13 or 14 --
-// Pin 15 can work but DHT must be disconnected during program upload.
+#include "config.hpp"
 
 // Uncomment the type of sensor in use:
 //#define DHTTYPE    DHT11     // DHT 11
@@ -14,4 +9,15 @@
 // See guide for details on sensor wiring and usage:
 //   https://learn.adafruit.com/dht/overview
 
-extern DHT_Unified dht; // global instance
+class TempHumidSensorClass : public DHT
+{
+    private:
+        uint32_t _pin_active_since = 0uL;
+
+    public:
+        TempHumidSensorClass() : DHT{PIN_HUMID_TEMP_SENSOR_DATA, DHTTYPE} {};
+        void begin (void);
+        void delay_until_ready (void);
+};
+
+extern TempHumidSensorClass temp_humidity_sensor;

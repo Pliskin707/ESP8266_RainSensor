@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define MAGIC_PATTERN_RAINSENSOR_PACKAGE (0b10000010011001100010000000100111uL) // random generated
+
 enum class boolean_signal_t : uint8_t
 {
     off_or_false = 0,

@@ -9,6 +9,7 @@
 #include "AscomAlpaca/AscomAlpacaClass.hpp"
 #include "EspNowComm/EspNowComm.hpp"
 #include "EspnowConnectionManager.h"
+#include "OledDisplay/OledDisplayClass.hpp"
 
 using namespace pliskin;
 
@@ -23,6 +24,8 @@ void setup() {
   #else
   Serial.begin(115200);
   #endif
+
+  oled.begin();
 
   // WiFi Manager - Async mode
   WiFi.hostname(DEVICENAME);
@@ -65,6 +68,7 @@ void setup() {
 
   // since the WiFiManager already enabled STA mode, ESP-NOW can be initialized now
   esp_now_comm.begin();
+  oled.dim(true);
 }
 
 void loop() {
@@ -86,6 +90,7 @@ void loop() {
 
   esp_now_comm.loop();
   alpaca.loop(connected);
+  oled.loop();
 
   if (time >= next)
   {

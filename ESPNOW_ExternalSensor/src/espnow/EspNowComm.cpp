@@ -2,6 +2,7 @@
 
 esp_now_comm_class esp_now_comm;
 static uint8_t _txRetries = 0;
+static bool _tx_success = false;
 static struct
 {
     uint8_t txRetriesRemaining;
@@ -47,8 +48,14 @@ int esp_now_comm_class::send (const void * data, const uint8_t len)
     return this->send(nullptr, data, len);
 }
 
+bool esp_now_comm_class::tx_success(void)
+{
+    return _tx_success;
+}
+
 void esp_now_comm_class::_txCallback (uint8_t * mac_addr, uint8_t status)
 {
+    _tx_success = (status == 0);
     if ((status != 0) && _txPackage.txRetriesRemaining)
         esp_now_comm._retrySend();
 }

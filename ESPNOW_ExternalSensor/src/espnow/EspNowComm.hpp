@@ -15,6 +15,7 @@ class esp_now_comm_class
         int add_peer (const mac address);
         int send (const mac destination, const void * data, const uint8_t len);
         int send (const void * data, const uint8_t len);
+        static bool tx_success (void);
 };
 
 extern esp_now_comm_class esp_now_comm;    // \brief global instance for extended ESP-NOW functionality
