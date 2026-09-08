@@ -10,6 +10,7 @@
 #include "EspNowComm/EspNowComm.hpp"
 #include "EspnowConnectionManager.h"
 #include "OledDisplay/OledDisplayClass.hpp"
+#include "LedStripe/LedStripeClass.hpp"
 
 using namespace pliskin;
 
@@ -22,10 +23,11 @@ void setup() {
   #ifndef DEBUG_PRINT
   pinMode(LEDPIN, OUTPUT);
   #else
-  Serial.begin(115200);
+  Serial.begin(74880, SERIAL_8N1, SERIAL_TX_ONLY);
   #endif
 
   oled.begin();
+  led_stripe.begin();
 
   // WiFi Manager - Async mode
   WiFi.hostname(DEVICENAME);
@@ -91,6 +93,7 @@ void loop() {
   esp_now_comm.loop();
   alpaca.loop(connected);
   oled.loop();
+  led_stripe.loop();
 
   if (time >= next)
   {
