@@ -3,6 +3,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <WiFiManager.h>
+#include <LittleFS.h>
 #include "ota/ota.hpp"
 #include "projutils/projutils.hpp"
 #include "config.hpp"
@@ -26,6 +27,11 @@ void setup() {
   #else
   Serial.begin(74880, SERIAL_8N1, SERIAL_TX_ONLY);
   #endif
+
+  // Initialize LittleFS filesystem for serving web files
+  if (!LittleFS.begin()) {
+    dprintf("\nLittleFS mount failed!");
+  }
 
   oled.begin();
   led_stripe.begin();

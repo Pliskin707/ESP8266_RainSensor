@@ -1,6 +1,8 @@
 #include "AscomAlpacaClass.hpp"
 #include "../projutils/projutils.hpp"
 #include "EspNowComm/EspNowComm.hpp" // TODO use the values from here instead of the static variables below
+#include <LittleFS.h>
+#include <EEPROM.h>
 
 // #define DEBUG_CALL_CYCLE
 #ifndef DEBUG_CALL_CYCLE
@@ -17,6 +19,11 @@ static volatile uint32_t _last_http_api_call = 0uL;
 static float _average_period_hours = 0.25;   // `0.0` must always be accepted (instantaneous value)
 static float _rain_rate = 0.1;
 static bool _is_safe = true;
+static bool _beeper_enabled = true;  // Default to enabled
+
+// EEPROM addresses for settings storage
+const int EEPROM_BEEPER_ADDR = 0;
+const int EEPROM_SIZE = 512;
 
 static uint32_t _get_server_transaction_id (void)
 {
@@ -342,6 +349,80 @@ static void send_device_state_monitor()
     _send_json_response(doc);
 }
 
+static void _load_settings_from_eeprom()
+{
+    EEPROM.begin(EEPROM_SIZE);
+    _beeper_enabled = EEPROM.read(EEPROM_BEEPER_ADDR) == 1;
+    EEPROM.end();
+    dprintf("\nLoaded settings from EEPROM: beeper_enabled=%d", _beeper_enabled);
+}
+
+static void _save_settings_to_eeprom()
+{
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.write(EEPROM_BEEPER_ADDR, _beeper_enabled ? 1 : 0);
+    EEPROM.commit();
+    EEPROM.end();
+    dprintf("\nSaved settings to EEPROM: beeper_enabled=%d", _beeper_enabled);
+}
+
+static void send_setup_page()
+{
+    _last_http_api_call = millis();
+    
+    // Check if this is a request for the current state
+    if (_server.hasArg("getState")) {
+        JsonDocument doc;
+        doc["beeperEnabled"] = _beeper_enabled;
+        String response;
+        serializeJson(doc, response);
+        _server.sendHeader("Content-Type", "application/json");
+        _server.send(200, "application/json", response);
+        return;
+    }
+    
+    // Otherwise, serve the HTML page
+    if (LittleFS.exists("/setup.html")) {
+        File file = LittleFS.open("/setup.html", "r");
+        if (file) {
+            _server.streamFile(file, "text/html");
+            file.close();
+            return;
+        }
+    }
+    
+    // Fallback if file doesn't exist
+    dprintf("\nWarning: setup.html not found in LittleFS");
+    _server.send(404, "text/plain", "Setup page not found");
+}
+
+static void store_user_settings()
+{
+    _last_http_api_call = millis();
+    
+    // Get the raw body
+    String body = _server.arg("plain");
+    dprintf("\nReceived POST body: %s", body.c_str());
+    
+    if (body.length() > 0) {
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, body);
+        
+        if (!error) {
+            _beeper_enabled = doc["beeperEnabled"].as<bool>();
+            dprintf("\nBeeper enabled set to: %d", _beeper_enabled);
+            _save_settings_to_eeprom();
+            _server.send(200, "application/json", "{\"status\":\"ok\"}");
+        } else {
+            dprintf("\nJSON parse error: %s", error.c_str());
+            _server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        }
+    } else {
+        dprintf("\nEmpty body received");
+        _server.send(400, "application/json", "{\"error\":\"Empty body\"}");
+    }
+}
+
 static void send_not_implemented()
 {
     _last_http_api_call = millis();
@@ -361,12 +442,16 @@ void ascom_alpaca::begin(const uint16_t port_discovery, const uint16_t port_devi
 {
     _port_discovery = port_discovery;
     _port_device = port_device;
+    
+    // Load settings from EEPROM
+    _load_settings_from_eeprom();
 
     _server.on("/management/apiversions", send_api_versions);
     _server.on("/management/v1/description", send_api_description);
     _server.on("/management/v1/configureddevices", send_configured_devices);
 
-    _server.on("/setup/v1/observingconditions/0/setup", send_not_implemented);    // <- this is called if you press the gears symbol in N.I.N.A.
+    _server.on("/setup/v1/observingconditions/0/setup", HTTP_GET, send_setup_page);         // <- this is called if you press the gears symbol in N.I.N.A.
+    _server.on("/setup/v1/observingconditions/0/setup", HTTP_POST, store_user_settings);    // <- this is called when the user selects "save settings" on the setup page
     _server.on("/api/v1/observingconditions/0/connected", send_connected_state);
     _server.on("/api/v1/observingconditions/0/interfaceversion", send_interface_version);
     _server.on("/api/v1/observingconditions/0/description", send_device_description);
@@ -391,7 +476,8 @@ void ascom_alpaca::begin(const uint16_t port_discovery, const uint16_t port_devi
     _server.on("/api/v1/observingconditions/0/windgust", send_not_implemented);
     _server.on("/api/v1/observingconditions/0/windspeed", send_not_implemented);
 
-    _server.on("/setup/v1/safetymonitor/0/setup", send_not_implemented);    // <- this is called if you press the gears symbol in N.I.N.A.
+    _server.on("/setup/v1/safetymonitor/0/setup", HTTP_GET, send_setup_page);       // <- this is called if you press the gears symbol in N.I.N.A.
+    _server.on("/setup/v1/safetymonitor/0/setup", HTTP_POST, store_user_settings);  // <- this is called when the user selects "save settings" on the setup page
     _server.on("/api/v1/safetymonitor/0/connected", send_connected_state);
     _server.on("/api/v1/safetymonitor/0/interfaceversion", send_interface_version);
     _server.on("/api/v1/safetymonitor/0/description", send_device_description);
