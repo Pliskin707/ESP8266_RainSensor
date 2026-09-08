@@ -1,5 +1,3 @@
-#pragma region Icons_32x32
-
 #include <Arduino.h>
 // created with https://tools.stonez56.com/u8g2/getBitmap.php
 

@@ -5,17 +5,21 @@
 
 #define MAGIC_PATTERN_RAINSENSOR_PACKAGE (0b10000010011001100010000000100111uL) // random generated
 
-enum class boolean_signal_t : uint8_t
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum
 {
     off_or_false = 0,
     on_or_true = 1,
     error = 2,
     NA = 3
-};
+} boolean_signal_t;
 
 typedef int16_t analog_signal_t;
-constexpr float to_float (const analog_signal_t& signal) {return static_cast<float>(signal) * 0.1f;}
-constexpr analog_signal_t to_analog_signal (const float& value) {return ((value <= to_float(INT16_MIN)) ? INT16_MIN : ((value >= to_float(INT16_MAX)) ? INT16_MAX : static_cast<analog_signal_t>(value * 10.0f)));}
+#define to_float(signal) (((float) (signal)) * 0.1f)
+#define to_analog_signal(value) ((analog_signal_t) ((value <= to_float(INT16_MIN)) ? INT16_MIN : ((value >= to_float(INT16_MAX)) ? INT16_MAX : (value * 10.0f))))
 
 typedef struct __attribute__((packed)) espnow_rainsensor_package
 {
@@ -29,5 +33,9 @@ typedef struct __attribute__((packed)) espnow_rainsensor_package
 } espnow_rainsensor_package_t;
 
 typedef uint8_t mac[6];
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
