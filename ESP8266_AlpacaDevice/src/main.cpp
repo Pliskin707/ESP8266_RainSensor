@@ -11,6 +11,7 @@
 #include "EspnowConnectionManager.h"
 #include "OledDisplay/OledDisplayClass.hpp"
 #include "LedStripe/LedStripeClass.hpp"
+#include "Beeper/BeeperClass.hpp"
 
 using namespace pliskin;
 
@@ -28,6 +29,8 @@ void setup() {
 
   oled.begin();
   led_stripe.begin();
+  beeper.begin();
+  beeper.loop();
 
   // WiFi Manager - Async mode
   WiFi.hostname(DEVICENAME);
@@ -94,6 +97,7 @@ void loop() {
   alpaca.loop(connected);
   oled.loop();
   led_stripe.loop();
+  beeper.loop();
 
   if (time >= next)
   {

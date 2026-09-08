@@ -11,5 +11,6 @@
 #define PIN_SDA                 (D2)    // aka. GPIO4
 #define PIN_FLASH               (D3)    // aka. GPIO0   // *must* be high at boot -> do not use
 #define PIN_RESERVED            (D4)    // aka. GPIO2   // *must* be high at boot -> do not use
+#define PIN_BEEPER              (D5)    // aka. GPIO14  // connected via a 68 ohm resistor to a DC beeper
 
 #endif
